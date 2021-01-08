@@ -34,6 +34,9 @@ from utils.loss import compute_loss
 from utils.plots import plot_images, plot_labels, plot_results, plot_evolution
 from utils.torch_utils import ModelEMA, select_device, intersect_dicts, torch_distributed_zero_first
 
+from utils.prune_utils import parse_module_defs,parse_module_defs2,gather_bn_weights,get_sr_flag,BNOptimizer
+from modelsori import *
+
 logger = logging.getLogger(__name__)
 
 try:
@@ -41,7 +44,101 @@ try:
 except ImportError:
     wandb = None
     logger.info("Install Weights & Biases for experiment logging via 'pip install wandb' (recommended)")
+def copy_conv(conv_src,conv_dst):
+    conv_dst[0] = conv_src.conv
+    conv_dst[1] = conv_src.bn
+    conv_dst[2] = conv_src.act
 
+
+def copy_weight(modelyolov5,model):
+    focus = list(modelyolov5.model.children())[0]
+    copy_conv(focus.conv, model.module_list[1])
+    conv1 = list(modelyolov5.model.children())[1]
+    copy_conv(conv1, model.module_list[2])
+    cspnet1 = list(modelyolov5.model.children())[2]
+    copy_conv(cspnet1.cv2, model.module_list[3])
+    copy_conv(cspnet1.cv1, model.module_list[5])
+    copy_conv(cspnet1.m[0].cv1, model.module_list[6])
+    copy_conv(cspnet1.m[0].cv2, model.module_list[7])
+    copy_conv(cspnet1.cv3, model.module_list[10])
+    conv2 = list(modelyolov5.model.children())[3]
+    copy_conv(conv2, model.module_list[11])
+    cspnet2 = list(modelyolov5.model.children())[4]
+    copy_conv(cspnet2.cv2, model.module_list[12])
+    copy_conv(cspnet2.cv1, model.module_list[14])
+    copy_conv(cspnet2.m[0].cv1, model.module_list[15])
+    copy_conv(cspnet2.m[0].cv2, model.module_list[16])
+    copy_conv(cspnet2.m[1].cv1, model.module_list[18])
+    copy_conv(cspnet2.m[1].cv2, model.module_list[19])
+    copy_conv(cspnet2.m[2].cv1, model.module_list[21])
+    copy_conv(cspnet2.m[2].cv2, model.module_list[22])
+    copy_conv(cspnet2.cv3, model.module_list[25])
+    conv3 = list(modelyolov5.model.children())[5]
+    copy_conv(conv3, model.module_list[26])
+    cspnet3 = list(modelyolov5.model.children())[6]
+    copy_conv(cspnet3.cv2, model.module_list[27])
+    copy_conv(cspnet3.cv1, model.module_list[29])
+    copy_conv(cspnet3.m[0].cv1, model.module_list[30])
+    copy_conv(cspnet3.m[0].cv2, model.module_list[31])
+    copy_conv(cspnet3.m[1].cv1, model.module_list[33])
+    copy_conv(cspnet3.m[1].cv2, model.module_list[34])
+    copy_conv(cspnet3.m[2].cv1, model.module_list[36])
+    copy_conv(cspnet3.m[2].cv2, model.module_list[37])
+    copy_conv(cspnet3.cv3, model.module_list[40])
+    conv4 = list(modelyolov5.model.children())[7]
+    copy_conv(conv4, model.module_list[41])
+    spp = list(modelyolov5.model.children())[8]
+    copy_conv(spp.cv1, model.module_list[42])
+    model.module_list[43] = spp.m[0]
+    model.module_list[45] = spp.m[1]
+    model.module_list[47] = spp.m[2]
+    copy_conv(spp.cv2, model.module_list[49])
+    cspnet4 = list(modelyolov5.model.children())[9]
+    copy_conv(cspnet4.cv2, model.module_list[50])
+    copy_conv(cspnet4.cv1, model.module_list[52])
+    copy_conv(cspnet4.m[0].cv1, model.module_list[53])
+    copy_conv(cspnet4.m[0].cv2, model.module_list[54])
+    copy_conv(cspnet4.cv3, model.module_list[56])
+    conv5 = list(modelyolov5.model.children())[10]
+    copy_conv(conv5, model.module_list[57])
+    upsample1 = list(modelyolov5.model.children())[11]
+    model.module_list[58] = upsample1
+    cspnet5 = list(modelyolov5.model.children())[13]
+    copy_conv(cspnet5.cv2, model.module_list[60])
+    copy_conv(cspnet5.cv1, model.module_list[62])
+    copy_conv(cspnet5.m[0].cv1, model.module_list[63])
+    copy_conv(cspnet5.m[0].cv2, model.module_list[64])
+    copy_conv(cspnet5.cv3, model.module_list[66])
+    conv6 = list(modelyolov5.model.children())[14]
+    copy_conv(conv6, model.module_list[67])
+    upsample2 = list(modelyolov5.model.children())[15]
+    model.module_list[68] = upsample2
+    cspnet6 = list(modelyolov5.model.children())[17]
+    copy_conv(cspnet6.cv2, model.module_list[70])
+    copy_conv(cspnet6.cv1, model.module_list[72])
+    copy_conv(cspnet6.m[0].cv1, model.module_list[73])
+    copy_conv(cspnet6.m[0].cv2, model.module_list[74])
+    copy_conv(cspnet6.cv3, model.module_list[76])
+    conv7 = list(modelyolov5.model.children())[18]
+    copy_conv(conv7, model.module_list[80])
+    cspnet7 = list(modelyolov5.model.children())[20]
+    copy_conv(cspnet7.cv2, model.module_list[82])
+    copy_conv(cspnet7.cv1, model.module_list[84])
+    copy_conv(cspnet7.m[0].cv1, model.module_list[85])
+    copy_conv(cspnet7.m[0].cv2, model.module_list[86])
+    copy_conv(cspnet7.cv3, model.module_list[88])
+    conv8 = list(modelyolov5.model.children())[21]
+    copy_conv(conv8, model.module_list[92])
+    cspnet8 = list(modelyolov5.model.children())[23]
+    copy_conv(cspnet8.cv2, model.module_list[94])
+    copy_conv(cspnet8.cv1, model.module_list[96])
+    copy_conv(cspnet8.m[0].cv1, model.module_list[97])
+    copy_conv(cspnet8.m[0].cv2, model.module_list[98])
+    copy_conv(cspnet8.cv3, model.module_list[100])
+    detect = list(modelyolov5.model.children())[24]
+    model.module_list[77][0] = detect.m[0]
+    model.module_list[89][0] = detect.m[1]
+    model.module_list[101][0] = detect.m[2]
 
 def train(hyp, opt, device, tb_writer=None, wandb=None):
     logger.info(f'Hyperparameters {hyp}')
@@ -169,6 +266,21 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
     nl = model.model[-1].nl  # number of detection layers (used for scaling hyp['obj'])
     imgsz, imgsz_test = [check_img_size(x, gs) for x in opt.img_size]  # verify imgsz are gs-multiples
 
+    # TODO 将cfg添加到配置变量中
+    cfg_model = Darknet('cfg/yolov5s_v4.cfg', (opt.img_size[0], opt.img_size[0])).to(device)
+    # cfg_model = Darknet('cfg/yolov5s_v3.cfg', (416, 416)).to(device)
+    copy_weight(model, cfg_model)
+    # 剪枝操作  sr开启稀疏训练  prune 不同的剪枝策略
+    # 剪枝操作
+    if opt.prune == 1:
+        CBL_idx, _, prune_idx, shortcut_idx, _ = parse_module_defs2(cfg_model.module_defs)
+        if opt.sr:
+            print('shortcut sparse training')
+    elif opt.prune == 0:
+        CBL_idx, _, prune_idx = parse_module_defs(cfg_model.module_defs)
+        if opt.sr:
+            print('normal sparse training ')
+
     # DP mode
     if cuda and rank == -1 and torch.cuda.device_count() > 1:
         model = torch.nn.DataParallel(model)
@@ -224,6 +336,10 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
     model.class_weights = labels_to_class_weights(dataset.labels, nc).to(device) * nc  # attach class weights
     model.names = names
 
+    for idx in prune_idx:
+        bn_weights = gather_bn_weights(cfg_model.module_list, [idx])
+        tb_writer.add_histogram('before_train_perlayer_bn_weights/hist', bn_weights.numpy(), idx, bins='doane')
+    
     # Start training
     t0 = time.time()
     nw = max(round(hyp['warmup_epochs'] * nb), 1000)  # number of warmup iterations, max(3 epochs, 1k iterations)
@@ -264,6 +380,7 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
         if rank in [-1, 0]:
             pbar = tqdm(pbar, total=nb)  # progress bar
         optimizer.zero_grad()
+        sr_flag = get_sr_flag(epoch, opt.sr)
         for i, (imgs, targets, paths, _) in pbar:  # batch -------------------------------------------------------------
             ni = i + nb * epoch  # number integrated batches (since train start)
             imgs = imgs.to(device, non_blocking=True).float() / 255.0  # uint8 to float32, 0-255 to 0.0-1.0
@@ -288,21 +405,38 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
                     imgs = F.interpolate(imgs, size=ns, mode='bilinear', align_corners=False)
 
             # Forward
-            with amp.autocast(enabled=cuda):
-                pred = model(imgs)  # forward
-                loss, loss_items = compute_loss(pred, targets.to(device), model)  # loss scaled by batch_size
-                if rank != -1:
-                    loss *= opt.world_size  # gradient averaged between devices in DDP mode
-                if opt.quad:
-                    loss *= 4.
+            # with amp.autocast(enabled=cuda):
+            #     pred = model(imgs)  # forward
+            #     loss, loss_items = compute_loss(pred, targets.to(device), model)  # loss scaled by batch_size
+            #     if rank != -1:
+            #         loss *= opt.world_size  # gradient averaged between devices in DDP mode
+            #     if opt.quad:
+            #         loss *= 4.
 
+            # Forward
+            pred = model(imgs)
+            # Loss
+            loss, loss_items = compute_loss(pred, targets.to(device), model)  # scaled by batch_size
+            if rank != -1:
+                loss *= opt.world_size  # gradient averaged between devices in DDP mode
+            if not torch.isfinite(loss):
+                print('WARNING: non-finite loss, ending training ', loss_items)
+                return results
             # Backward
-            scaler.scale(loss).backward()
+            # scaler.scale(loss).backward()
+            loss.backward()
+
+            idx2mask = None
+            # if opt.sr and opt.prune==1 and epoch > opt.epochs * 0.5:
+            #     idx2mask = get_mask2(model, prune_idx, 0.85)
+            # copy_weight(model,cfg_model)
+            BNOptimizer.updateBN(sr_flag, cfg_model.module_list, opt.s, prune_idx, epoch, idx2mask, opt)
 
             # Optimize
             if ni % accumulate == 0:
-                scaler.step(optimizer)  # optimizer.step
-                scaler.update()
+                # scaler.step(optimizer)  # optimizer.step
+                # scaler.update()
+                optimizer.step()
                 optimizer.zero_grad()
                 if ema:
                     ema.update(model)
@@ -363,8 +497,12 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
             for x, tag in zip(list(mloss[:-1]) + list(results) + lr, tags):
                 if tb_writer:
                     tb_writer.add_scalar(tag, x, epoch)  # tensorboard
+                    
                 if wandb:
                     wandb.log({tag: x})  # W&B
+            #剪枝后bn层权重
+            bn_weights = gather_bn_weights(cfg_model.module_list, prune_idx)
+            tb_writer.add_histogram('bn_weights/hist', bn_weights.numpy(), epoch, bins='doane')
 
             # Update best mAP
             fi = fitness(np.array(results).reshape(1, -1))  # weighted combination of [P, R, mAP@.5, mAP@.5-.95]
@@ -464,6 +602,10 @@ if __name__ == '__main__':
     parser.add_argument('--name', default='exp', help='save to project/name')
     parser.add_argument('--exist-ok', action='store_true', help='existing project/name ok, do not increment')
     parser.add_argument('--quad', action='store_true', help='quad dataloader')
+    parser.add_argument('--sparsity-regularization', '-sr', dest='sr', action='store_true',
+                        help='train with channel sparsity regularization')
+    parser.add_argument('--s', type=float, default=0.001, help='scale sparse rate')
+    parser.add_argument('--prune', type=int, default=1, help='0:nomal prune 1:other prune ')
     opt = parser.parse_args()
 
     # Set DDP variables
