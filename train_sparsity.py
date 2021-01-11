@@ -49,8 +49,7 @@ def copy_conv(conv_src,conv_dst):
     conv_dst[1] = conv_src.bn
     conv_dst[2] = conv_src.act
 
-
-def copy_weight(modelyolov5,model):
+def copy_weight_v4(modelyolov5,model):
     focus = list(modelyolov5.model.children())[0]
     copy_conv(focus.conv, model.module_list[1])
     conv1 = list(modelyolov5.model.children())[1]
@@ -269,7 +268,7 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
     # TODO 将cfg添加到配置变量中
     cfg_model = Darknet('cfg/yolov5s_v4.cfg', (opt.img_size[0], opt.img_size[0])).to(device)
     # cfg_model = Darknet('cfg/yolov5s_v3.cfg', (416, 416)).to(device)
-    copy_weight(model, cfg_model)
+    copy_weight_v4(model, cfg_model)
     # 剪枝操作  sr开启稀疏训练  prune 不同的剪枝策略
     # 剪枝操作
     if opt.prune == 1:
