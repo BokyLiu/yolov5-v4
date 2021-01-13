@@ -31,6 +31,7 @@ class Conv(nn.Module):
         self.conv = nn.Conv2d(c1, c2, k, s, autopad(k, p), groups=g, bias=False)
         self.bn = nn.BatchNorm2d(c2)
         self.act = nn.SiLU() if act is True else (act if isinstance(act, nn.Module) else nn.Identity())
+        # self.act = nn.LeakyReLU(0.1, inplace=True) if act else nn.Identity()
 
     def forward(self, x):
         return self.act(self.bn(self.conv(x)))
@@ -85,6 +86,21 @@ class C3(nn.Module):
     def forward(self, x):
         return self.cv3(torch.cat((self.m(self.cv1(x)), self.cv2(x)), dim=1))
 
+class Ctiny(nn.Module):
+    #yolov4-tiny bottleneck
+    def __init__(self,c1, c2, n=1,e=0.5):
+        super(Ctiny, self).__init__()
+        c_ = int(c2 * e)  # hidden channels
+        c1=c1//2
+        self.cv1 = Conv(c1, c_, 3, 1)
+        self.cv2 = Conv(c1, c_, 3, 1)
+        self.cv3 = Conv(2 * c_, c2, 1)
+
+    def forward(self,x):
+        out = torch.chunk(x, 2, dim=1)
+        x1=out[1]
+        y=self.cv1(x1)
+        return self.cv3(torch.cat((self.cv2(y),y), dim=1))
 
 class SPP(nn.Module):
     # Spatial pyramid pooling layer used in YOLOv3-SPP
