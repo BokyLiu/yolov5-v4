@@ -35,5 +35,5 @@ head:
    [[-1, 11], 1, Concat, [1]],
    [-1,1,Conv,[256,3,1]], #20
 
-   [[16, 20], 1, Detect, [nc, anchors]],
+   [[20, 16], 1, Detect, [nc, anchors]],
   ]
