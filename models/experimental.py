@@ -49,7 +49,8 @@ class GhostConv(nn.Module):
         super(GhostConv, self).__init__()
         c_ = c2 // 2  # hidden channels
         self.cv1 = Conv(c1, c_, k, s, None, g, act)
-        self.cv2 = Conv(c_, c_, 5, 1, None, c_, act)
+        # self.cv2 = Conv(c_, c_, 5, 1, None, c_, act)   #5 ? 3
+        self.cv2 = Conv(c_, c_, 3, 1, None, c_, act)  # 5 ? 3
 
     def forward(self, x):
         y = self.cv1(x)
@@ -58,14 +59,14 @@ class GhostConv(nn.Module):
 
 class GhostBottleneck(nn.Module):
     # Ghost Bottleneck https://github.com/huawei-noah/ghostnet
-    def __init__(self, c1, c2, k, s):
+    def __init__(self, c1, c2, n,k, s):
         super(GhostBottleneck, self).__init__()
         c_ = c2 // 2
         self.conv = nn.Sequential(GhostConv(c1, c_, 1, 1),  # pw
                                   DWConv(c_, c_, k, s, act=False) if s == 2 else nn.Identity(),  # dw
                                   GhostConv(c_, c2, 1, 1, act=False))  # pw-linear
         self.shortcut = nn.Sequential(DWConv(c1, c1, k, s, act=False),
-                                      Conv(c1, c2, 1, 1, act=False)) if s == 2 else nn.Identity()
+                                      Conv(c1, c2, 1, 1, act=False)) if (s == 2 or c1 != c2) else nn.Identity()
 
     def forward(self, x):
         return self.conv(x) + self.shortcut(x)
