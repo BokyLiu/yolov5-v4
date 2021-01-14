@@ -213,6 +213,9 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
         if m in [Conv, Bottleneck, SPP, DWConv, MixConv2d, Focus, CrossConv, BottleneckCSP, C3,Ctiny,GhostBottleneck]:
             c1, c2 = ch[f], args[0]
 
+            if m in [Conv] and args[-1]==nn.LeakyReLU:
+                args[-1]=nn.LeakyReLU(0.1, inplace=True)
+
             # Normal
             # if i > 0 and args[0] != no:  # channel expansion factor
             #     ex = 1.75  # exponential (default 2.0)

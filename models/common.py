@@ -92,9 +92,9 @@ class Ctiny(nn.Module):
         super(Ctiny, self).__init__()
         c_ = int(c2 * e)  # hidden channels
         c1=c1//2
-        self.cv1 = Conv(c1, c_, 3, 1)
-        self.cv2 = Conv(c1, c_, 3, 1)
-        self.cv3 = Conv(2 * c_, c2, 1)
+        self.cv1 = Conv(c1, c_, 3, 1,act=nn.LeakyReLU(0.1, inplace=True))
+        self.cv2 = Conv(c1, c_, 3, 1,act=nn.LeakyReLU(0.1, inplace=True))
+        self.cv3 = Conv(2 * c_, c2, 1,act=nn.LeakyReLU(0.1, inplace=True))
 
     def forward(self,x):
         out = torch.chunk(x, 2, dim=1)
