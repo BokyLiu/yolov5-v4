@@ -6,6 +6,7 @@ from utils.google_utils import *
 import numpy as np
 import torch
 import torch.nn as nn
+from utils import torch_utils
 
 ONNX_EXPORT = False
 
@@ -345,6 +346,7 @@ class Darknet(nn.Module):
                         break
             fused_list.append(a)
         self.module_list = fused_list
+        return self
         # model_info(self)  # yolov3-spp reduced from 225 to 152 layers
 
 
