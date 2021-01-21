@@ -102,6 +102,34 @@ class Ctiny(nn.Module):
         y=self.cv1(x1)
         return self.cv3(torch.cat((self.cv2(y),y), dim=1))
 
+class InvertedResidual(nn.Module):
+    def __init__(self,inp ,oup,stride ,expand_ratio):
+        super(InvertedResidual,self).__init__()
+        self.stride=stride
+        assert stride in [1,2]
+
+        hidden_dim=int(round(inp*expand_ratio))
+        self.use_res_connect=self.stride==1 and inp ==oup
+
+        layers=[]
+        if expand_ratio != 1:
+            #pw
+            self.pw=Conv(inp,hidden_dim,k=1,act=nn.ReLU6(inplace=True))
+            layers.append(self.pw)
+        #dw
+        self.dw=Conv(hidden_dim,hidden_dim,k=3,s=stride,g=hidden_dim,act=nn.ReLU6(inplace=True))
+        layers.append(self.dw)
+        #pw-linear
+        self.pw_linear=Conv(hidden_dim,oup,1,1,0,act=False)
+        layers.append(self.pw_linear)
+        self.conv=nn.Sequential(*layers)
+
+    def forward(self,x):
+        if self.use_res_connect:
+            return x+self.conv(x)
+        else:
+            return self.conv(x)
+
 class SPP(nn.Module):
     # Spatial pyramid pooling layer used in YOLOv3-SPP
     def __init__(self, c1, c2, k=(5, 9, 13)):

@@ -121,6 +121,9 @@ class Model(nn.Module):
     def forward_once(self, x, profile=False):
         y, dt = [], []  # outputs
         for m in self.model:
+            # show network
+            # print(x.shape)
+            # print(type(m))
             if m.f != -1:  # if not from previous layer
                 x = y[m.f] if isinstance(m.f, int) else [x if j == -1 else y[j] for j in m.f]  # from earlier layers
 
@@ -210,7 +213,7 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
                 pass
 
         n = max(round(n * gd), 1) if n > 1 else n  # depth gain
-        if m in [Conv, Bottleneck, SPP, DWConv, MixConv2d, Focus, CrossConv, BottleneckCSP, C3,Ctiny,GhostBottleneck]:
+        if m in [Conv, Bottleneck, SPP, DWConv, MixConv2d, Focus, CrossConv, BottleneckCSP, C3,Ctiny,GhostBottleneck,InvertedResidual]:
             c1, c2 = ch[f], args[0]
 
             if m in [Conv] and args[-1]==nn.LeakyReLU:
