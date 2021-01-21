@@ -33,6 +33,9 @@ model_res.py
 fangweisui_test.py
 detect_videofile.py
 detect_fangweisui.py
+fangweisui_test.txt
+prune_finetune.txt
+train.txt
 
 #*.cfg
 !cfg/yolov3*.cfg
