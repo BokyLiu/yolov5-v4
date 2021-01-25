@@ -255,6 +255,9 @@ def confluence(det,class_num,Md):
             # the best id must be exist,because the optimalconfluence is so much big
             best_id = None
             for box_id, single_box in enumerate(infos):
+                if len(infos)==1:
+                    best_id=0
+                    break
                 confluence_bi = {}
                 box1 = single_box[:4]
                 for another_box_id, another_single_box in enumerate(infos):
