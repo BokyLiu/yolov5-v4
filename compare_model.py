@@ -233,7 +233,7 @@ def non_max_suppression_confluence(prediction, conf_thres=0.1, iou_thres=0.6, me
             continue
 
         Md = 0.6
-        bf=confluence(x,nc,Md)
+        bf=confluenceV1(x,nc,Md)
 
         output[xi] = x[bf]
 
@@ -288,6 +288,73 @@ def confluence(det,class_num,Md):
             infos = infos[index_save]
     return bf
 
+def confluenceV1(det,class_num,Md):
+    index = np.arange(0, len(det), 1).reshape(-1, 1)
+    infos_tmp = torch.cat((det, torch.from_numpy(index).to(device)), 1)
+    bf = []
+    # 对所有类别遍历
+    for box_class in range(class_num):  # line 2
+        # 对单个类别的所有框遍历
+        infos = infos_tmp[infos_tmp[:, 5] == box_class].cpu().detach().numpy()
+        while len(infos):  # line 3
+            optimalconfluence = 416 * 320  # imagesize line 5
+            # the best id must be exist,because the optimalconfluence is so much big
+            best_id = None
+            total_P=[]
+            for box_id, single_box in enumerate(infos):
+                if len(infos)==1:
+                    best_id=0
+                    break
+                box1 = single_box[:4]
+
+                box1 = np.tile(box1, (len(infos) - 1, 1))
+                index_other=[i for i in range(len(infos)) if i != box_id]
+                box2=infos[index_other,:4]
+                box_total=np.concatenate((box1,box2),1)
+                min_x=box_total[:,[0,2,4,6]].min(1).reshape(-1,1)
+                max_x=box_total[:,[0,2,4,6]].max(1).reshape(-1,1)
+                min_y=box_total[:,[1,3,5,7]].min(1).reshape(-1,1)
+                max_y=box_total[:,[1,3,5,7]].max(1).reshape(-1,1)
+                norm_box1=box1
+                norm_box1[:,[0,2]]=(norm_box1[:,[0,2]]-min_x)/(max_x-min_x)
+                norm_box1[:, [1, 3]] = (norm_box1[:, [1, 3]] - min_y) / (max_y - min_y)
+                norm_box2 = box2
+                norm_box2[:, [0, 2]] = (norm_box2[:, [0, 2]] - min_x) / (max_x - min_x)
+                norm_box2[:, [1, 3]] = (norm_box2[:, [1, 3]] - min_y) / (max_y - min_y)
+                x1=norm_box1[:,0]
+                p1=norm_box2[:,0]
+                x2=norm_box1[:,2]
+                p2=norm_box2[:,2]
+                y1=norm_box1[:,1]
+                q1=norm_box2[:,1]
+                y2=norm_box1[:,3]
+                q2=norm_box2[:,3]
+                P = abs(x1 - p1) + abs(y1 - q1) + abs(x2 - p2) + abs(y2 - q2)
+                total_P.append(P)
+                confluence_bi=P/single_box[4]
+                confluence_bi=confluence_bi[P < 2]
+
+                if len(confluence_bi)==0:
+                    confluence_bi_min=0
+                else:
+                    confluence_bi_min=confluence_bi.min()
+
+                if confluence_bi_min < optimalconfluence:
+                    optimalconfluence = confluence_bi_min
+                    best_id = box_id
+
+            bf.append(infos[best_id][-1])
+            if len(total_P)>0:
+                best_p=total_P[best_id]
+                index_del=np.where(best_p < Md)[0]
+                #total_P is not include the best_id ,so when index is biger than best id ,it needs to add one place.
+                index_del = [i if i < best_id else i + 1 for i in index_del]
+            else:
+                index_del=[]
+
+            index_save = [j for j in range(len(infos)) if (j != best_id and j not in index_del)]
+            infos = infos[index_save]
+    return bf
 
 
 def plot_one_box(x, img, color=None, label=None, line_thickness=None):
