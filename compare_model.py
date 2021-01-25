@@ -152,6 +152,144 @@ def non_max_suppressionv5(prediction, conf_thres=0.1, iou_thres=0.6, merge=False
 
     return output
 
+def normalize_coordinate(box1,box2):
+    x1, y1, x2, y2 = box1
+    p1, q1, p2, q2 = box2
+    min_x = min(x1, x2, p1, p2)
+    max_x = max(x1, x2, p1, p2)
+    min_y = min(y1, y2, q1, q2)
+    max_y = max(y1, y2, q1, q2)
+    norm_x1 = (x1 - min_x) / (max_x - min_x)
+    norm_x2 = (x2 - min_x) / (max_x - min_x)
+    norm_p1 = (p1 - min_x) / (max_x - min_x)
+    norm_p2 = (p2 - min_x) / (max_x - min_x)
+    norm_y1 = (y1 - min_y) / (max_y - min_y)
+    norm_y2 = (y2 - min_y) / (max_y - min_y)
+    norm_q1 = (q1 - min_y) / (max_y - min_y)
+    norm_q2 = (q2 - min_y) / (max_y - min_y)
+    return [norm_x1,norm_y1,norm_x2,norm_y2],[norm_p1,norm_q1,norm_p2,norm_q2]
+
+def proximity_box(box1,box2):
+    x1, y1, x2, y2 = box1
+    p1, q1, p2, q2 = box2
+    P=abs(x1-p1)+abs(y1-q1)+abs(x2-p2)+abs(y2-q2)
+    return P
+
+def non_max_suppression_confluence(prediction, conf_thres=0.1, iou_thres=0.6, merge=False, classes=None, agnostic=False):
+    """Performs Non-Maximum Suppression (NMS) on inference results
+
+    Returns:
+         detections with shape: nx6 (x1, y1, x2, y2, conf, cls)
+    """
+    if prediction.dtype is torch.float16:
+        prediction = prediction.float()  # to FP32
+
+    nc = prediction[0].shape[1] - 5  # number of classes
+    xc = prediction[..., 4] > conf_thres  # candidates
+
+    # Settings
+    min_wh, max_wh = 2, 4096  # (pixels) minimum and maximum box width and height
+    max_det = 300  # maximum number of detections per image
+    time_limit = 10.0  # seconds to quit after
+    redundant = True  # require redundant detections
+    multi_label = nc > 1  # multiple labels per box (adds 0.5ms/img)
+
+    t = time.time()
+    output = [None] * prediction.shape[0]
+    for xi, x in enumerate(prediction):  # image index, image inference
+        # Apply constraints
+        # x[((x[..., 2:4] < min_wh) | (x[..., 2:4] > max_wh)).any(1), 4] = 0  # width-height
+        x = x[xc[xi]]  # confidence
+
+        # If none remain process next image
+        if not x.shape[0]:
+            continue
+
+        # Compute conf
+        x[:, 5:] *= x[:, 4:5]  # conf = obj_conf * cls_conf
+
+        # Box (center x, center y, width, height) to (x1, y1, x2, y2)
+        box = xywh2xyxy(x[:, :4])
+
+        # Detections matrix nx6 (xyxy, conf, cls)
+        if multi_label:
+            i, j = (x[:, 5:] > conf_thres).nonzero(as_tuple=False).T
+            x = torch.cat((box[i], x[i, j + 5, None], j[:, None].float()), 1)
+        else:  # best class only
+            conf, j = x[:, 5:].max(1, keepdim=True)
+            x = torch.cat((box, conf, j.float()), 1)[conf.view(-1) > conf_thres]
+
+        # Filter by class
+        if classes:
+            x = x[(x[:, 5:6] == torch.tensor(classes, device=x.device)).any(1)]
+
+        # Apply finite constraint
+        # if not torch.isfinite(x).all():
+        #     x = x[torch.isfinite(x).all(1)]
+
+        # If none remain process next image
+        n = x.shape[0]  # number of boxes
+        if not n:
+            continue
+
+        Md = 0.6
+        bf=confluence(x,nc,Md)
+
+        output[xi] = x[bf]
+
+        # if (time.time() - t) > time_limit:
+        #     break  # time limit exceeded
+
+    return output
+
+def confluence(det,class_num,Md):
+    index = np.arange(0, len(det), 1).reshape(-1, 1)
+    infos_tmp = torch.cat((det, torch.from_numpy(index).to(device)), 1)
+    bf = []
+    # 对所有类别遍历
+    for box_class in range(class_num):  # line 2
+        # 对单个类别的所有框遍历
+        infos = infos_tmp[infos_tmp[:, 5] == box_class].cpu().detach().numpy()
+        while len(infos):  # line 3
+            optimalconfluence = 416 * 320  # imagesize line 5
+            # the best id must be exist,because the optimalconfluence is so much big
+            best_id = None
+            for box_id, single_box in enumerate(infos):
+                confluence_bi = {}
+                box1 = single_box[:4]
+                for another_box_id, another_single_box in enumerate(infos):
+                    if box_id == another_box_id:
+                        continue
+                    box2 = another_single_box[:4]
+                    norm_box1, norm_box2 = normalize_coordinate(box1, box2)
+                    P = proximity_box(norm_box1, norm_box2)
+                    if P < 2:
+                        confluence_bi[another_box_id] = P / single_box[4]
+
+                if len(confluence_bi) == 0:
+                    confluence_bi_min = 0
+                else:
+                    res_min = min(confluence_bi, key=lambda x: confluence_bi[x])
+                    confluence_bi_min = confluence_bi[res_min]
+                if confluence_bi_min < optimalconfluence:
+                    optimalconfluence = confluence_bi_min
+                    best_id = box_id
+
+            bf.append(infos[best_id][-1])
+            index_det = []
+            box2 = infos[best_id][:4]
+            for box_id, single_box in enumerate(infos):
+                box1 = single_box[:4]
+                norm_box1, norm_box2 = normalize_coordinate(box1, box2)
+                P = proximity_box(norm_box1, norm_box2)
+                if P < Md:
+                    index_det.append(box_id)
+            index_save = [i for i in range(infos.shape[0]) if i not in index_det]
+            infos = infos[index_save]
+    return bf
+
+
+
 def plot_one_box(x, img, color=None, label=None, line_thickness=None):
     # Plots one bounding box on image img
     tl = line_thickness or round(0.002 * (img.shape[0] + img.shape[1]) / 2) + 1  # line/font thickness
@@ -272,9 +410,7 @@ if __name__ == '__main__':
     opt = parser.parse_args()
     print(opt)
 
-    test_time()
-
-    if 0:
+    if 1:
 
         img_size = opt.img_size
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -348,7 +484,7 @@ if __name__ == '__main__':
         # model_prune.eval()
         # pred = model_prune(img)[0]
 
-        pred = non_max_suppressionv5(pred, 0.4, 0.5, classes=None,
+        pred = non_max_suppression_confluence(pred, 0.1, 0.5, classes=None,
                                    agnostic=False)
         # Process detections
         for i, det in enumerate(pred):  # detections per image
@@ -361,6 +497,8 @@ if __name__ == '__main__':
                     label = '%s %.2f' % (str(int(cls)), conf)
                     plot_one_box(xyxy, img0, label=label, color=[random.randint(0, 255) for _ in range(3)], line_thickness=3)
                 cv2.imwrite("v5.jpg", img0)
+    else:
+        test_time()
 
 
 
