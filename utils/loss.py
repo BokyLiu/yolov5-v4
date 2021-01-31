@@ -1,5 +1,5 @@
 # Loss functions
-
+import math
 import torch
 import torch.nn as nn
 
@@ -84,6 +84,23 @@ class QFocalLoss(nn.Module):
         else:  # 'none'
             return loss
 
+
+class FocalL1Loss(nn.Module):
+    def __init__(self):
+        super(FocalL1Loss, self).__init__()
+
+    def forward(self,x):
+        beta=0.8
+        alpha=math.e*beta
+        C=(2*alpha*math.log(beta)+alpha)/4
+        if x>1:
+            loss=-1*alpha*math.log(beta)*x+C
+        else:
+            loss=-1*alpha*x**2*(2*math.log(beta*x)-1)/4
+        return loss
+
+
+
 def compute_loss_cfg(p, targets, model):  # predictions, targets, model
     device = targets.device
     lcls, lbox, lobj = torch.zeros(1, device=device), torch.zeros(1, device=device), torch.zeros(1, device=device)
@@ -147,6 +164,78 @@ def compute_loss_cfg(p, targets, model):  # predictions, targets, model
     loss = lbox + lobj + lcls
     return loss * bs, torch.cat((lbox, lobj, lcls, loss)).detach()
 
+def compute_loss_eiou(p, targets, model):  # predictions, targets, model
+    device = targets.device
+    lcls, lbox, lobj = torch.zeros(1, device=device), torch.zeros(1, device=device), torch.zeros(1, device=device)
+    tcls, tbox, indices, anchors = build_targets(p, targets, model)  # targets
+    h = model.hyp  # hyperparameters
+
+    # Define criteria
+    BCEcls = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([h['cls_pw']], device=device))  # weight=model.class_weights)
+    BCEobj = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([h['obj_pw']], device=device))
+
+    # Class label smoothing https://arxiv.org/pdf/1902.04103.pdf eqn 3
+    cp, cn = smooth_BCE(eps=0.0)
+
+    # Focal loss
+    g = h['fl_gamma']  # focal loss gamma
+    if g > 0:
+        BCEcls, BCEobj = FocalLoss(BCEcls, g), FocalLoss(BCEobj, g)
+
+    # Losses
+    nt = 0  # number of targets
+    no = len(p)  # number of outputs
+    balance = [4.0, 1.0, 0.3, 0.1, 0.03]  # P3-P7
+    for i, pi in enumerate(p):  # layer index, layer predictions
+        b, a, gj, gi = indices[i]  # image, anchor, gridy, gridx
+        tobj = torch.zeros_like(pi[..., 0], device=device)  # target obj
+
+        n = b.shape[0]  # number of targets
+        if n:
+            nt += n  # cumulative targets
+            ps = pi[b, a, gj, gi]  # prediction subset corresponding to targets
+
+            # Regression
+            pxy = ps[:, :2].sigmoid() * 2. - 0.5
+            pwh = (ps[:, 2:4].sigmoid() * 2) ** 2 * anchors[i]
+            pbox = torch.cat((pxy, pwh), 1)  # predicted box
+
+            # EIOU
+            iou=bbox_iou(pbox.T, tbox[i], x1y1x2y2=False, EIoU=True)
+            ## focal_eiou
+            iou_x = bbox_iou(pbox.T, tbox[i], x1y1x2y2=False)
+            eiou_gamma=0.5
+            ### iou_x**0.5 will lead to gradient nan if iou_x=0
+            Lfocal_eiou=(iou_x.detach()**eiou_gamma*(1.0-iou)).mean()
+            lbox += FocalL1Loss()(Lfocal_eiou)
+
+            ##focal_eiou_v1
+            # Leiou=(1.0 - iou).mean()
+            # lbox += FocalL1Loss()(Leiou)
+
+            # Objectness
+            tobj[b, a, gj, gi] = (1.0 - model.gr) + model.gr * iou.detach().clamp(0).type(tobj.dtype)  # iou ratio
+
+            # Classification
+            if model.nc > 1:  # cls loss (only if multiple classes)
+                t = torch.full_like(ps[:, 5:], cn, device=device)  # targets
+                t[range(n), tcls[i]] = cp
+                lcls += BCEcls(ps[:, 5:], t)  # BCE
+
+            # Append targets to text file
+            # with open('targets.txt', 'a') as file:
+            #     [file.write('%11.5g ' * 4 % tuple(x) + '\n') for x in torch.cat((txy[i], twh[i]), 1)]
+
+        lobj += BCEobj(pi[..., 4], tobj) * balance[i]  # obj loss
+
+    s = 3 / no  # output count scaling
+    lbox *= h['box'] * s
+    lobj *= h['obj']
+    lcls *= h['cls'] * s
+    bs = tobj.shape[0]  # batch size
+
+    loss = lbox + lobj + lcls
+    return loss * bs, torch.cat((lbox, lobj, lcls, loss)).detach()
 
 def compute_loss(p, targets, model):  # predictions, targets, model
     device = targets.device
@@ -183,6 +272,7 @@ def compute_loss(p, targets, model):  # predictions, targets, model
             pxy = ps[:, :2].sigmoid() * 2. - 0.5
             pwh = (ps[:, 2:4].sigmoid() * 2) ** 2 * anchors[i]
             pbox = torch.cat((pxy, pwh), 1)  # predicted box
+
             iou = bbox_iou(pbox.T, tbox[i], x1y1x2y2=False, CIoU=True)  # iou(prediction, target)
             lbox += (1.0 - iou).mean()  # iou loss
 
