@@ -1,3 +1,7 @@
 python train.py --img 416 --batch 128 --epochs 250 --data data/coco_fangweisui.yaml --weights weights/yolov5s.pt --cfg models/yolov5s_fangweisui.yaml --name s
 python train.py --img 416 --batch 4 --epochs 250 --weights weights/yolov4_tiny.pt --data data/coco_fangweisui.yaml --cfg models/yolov4-tiny.yaml --name s_tiny
 python train.py --img 416 --batch 4 --epochs 250 --weights '' --data data/coco_fangweisui.yaml --cfg models/yolov5s_mobilenetv2.yaml --name s_mobilenetv2
+
+
+
+python train.py --img 640 --batch 8 --epochs 50 --weights weights/yolov5s_v4.pt --data data/coco_hand.yaml --cfg models/yolov5s.yaml --name s_hand
