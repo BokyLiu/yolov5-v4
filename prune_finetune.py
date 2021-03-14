@@ -31,6 +31,7 @@ from utils.google_utils import attempt_download
 from utils.loss import compute_loss,compute_loss_cfg
 from utils.plots import plot_images, plot_labels, plot_results, plot_evolution
 from utils.torch_utils import ModelEMA, select_device, intersect_dicts, torch_distributed_zero_first,initialize_weights
+from utils.distill_utils import distillation_loss1, distillation_loss2
 from modelsori import *
 
 logger = logging.getLogger(__name__)
@@ -68,6 +69,25 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
 
     model = Darknet(opt.cfg, (opt.img_size[0], opt.img_size[0])).to(device)
     initialize_weights(model)
+
+    distill=True
+    if distill:
+        t_cfg="models/yolov5s.yaml"
+        t_weights="runs/train/s_hand/weights/last.pt"
+        t_data="data/coco_hand.yaml"
+        ckpt = torch.load(t_weights, map_location=device)  # load checkpoint
+        with open(t_data) as f:
+            data_dict = yaml.load(f, Loader=yaml.FullLoader)  # data dict
+        nc=int(data_dict['nc'])
+        t_model = Model(t_cfg, nc=nc).to(device)
+        exclude = ['anchor']  # exclude keys
+        state_dict = ckpt['model'].float().state_dict()  # to FP32
+        state_dict = intersect_dicts(state_dict, t_model.state_dict(), exclude=exclude)  # intersect
+        t_model.load_state_dict(state_dict, strict=False)  # load
+        t_model.eval()
+        print('<.....................using knowledge distillation.......................>')
+        print('teacher model:', t_weights, '\n')
+
 
     # Model
     # pretrained = weights.endswith('.pt')
@@ -256,6 +276,7 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
         # dataset.mosaic_border = [b - imgsz, -b]  # height, width borders
 
         mloss = torch.zeros(4, device=device)  # mean losses
+        msoft_target = torch.zeros(1).to(device)
         if rank != -1:
             dataloader.sampler.set_epoch(epoch)
         pbar = enumerate(dataloader)
@@ -293,6 +314,19 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
                 if rank != -1:
                     loss *= opt.world_size  # gradient averaged between devices in DDP mode
 
+            if distill:
+                soft_target = 0
+                reg_ratio = 0  #表示有多少target的回归是不如老师的，这时学生会跟gt再学习
+                # _,output_t = t_model(imgs)
+                with torch.no_grad():
+                    _,output_t = t_model(imgs)
+
+                #soft_target = distillation_loss1(pred, output_t, model.nc, imgs.size(0))
+                #这里把蒸馏策略改为了二，想换回一的可以注释掉loss2，把loss1取消注释
+                soft_target, reg_ratio = distillation_loss2(model, targets.to(device), pred, output_t)
+                
+                loss += soft_target
+           
             # Backward
             scaler.scale(loss).backward()
 
@@ -307,6 +341,7 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
             # Print
             if rank in [-1, 0]:
                 mloss = (mloss * i + loss_items) / (i + 1)  # update mean losses
+                msoft_target = (msoft_target * i + soft_target) / (i + 1)
                 mem = '%.3gG' % (torch.cuda.memory_reserved() / 1E9 if torch.cuda.is_available() else 0)  # (GB)
                 s = ('%10s' * 2 + '%10.4g' * 6) % (
                     '%g/%g' % (epoch, epochs - 1), mem, *mloss, targets.shape[0], imgs.shape[-1])

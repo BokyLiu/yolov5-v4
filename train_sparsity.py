@@ -526,6 +526,9 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
                 del ckpt
         # end epoch ----------------------------------------------------------------------------------------------------
     # end training
+    for idx in prune_idx:
+        bn_weights = gather_bn_weights(model.module_list, [idx])
+        tb_writer.add_histogram('after_train_perlayer_bn_weights/hist', bn_weights.numpy(), idx, bins='doane')
 
     if rank in [-1, 0]:
         # Strip optimizers
