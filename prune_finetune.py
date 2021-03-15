@@ -324,7 +324,7 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
                 #soft_target = distillation_loss1(pred, output_t, model.nc, imgs.size(0))
                 #这里把蒸馏策略改为了二，想换回一的可以注释掉loss2，把loss1取消注释
                 soft_target, reg_ratio = distillation_loss2(model, targets.to(device), pred, output_t)
-                
+
                 loss += soft_target
            
             # Backward
