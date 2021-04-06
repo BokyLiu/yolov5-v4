@@ -183,7 +183,10 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
 
     # DDP mode
     if cuda and rank != -1:
-        model = DDP(model, device_ids=[opt.local_rank], output_device=opt.local_rank)
+        # model = DDP(model, device_ids=[opt.local_rank], output_device=opt.local_rank)
+        model = DDP(model, device_ids=[opt.local_rank], output_device=opt.local_rank,
+                    # nn.MultiheadAttention incompatibility with DDP https://github.com/pytorch/pytorch/issues/26698
+                    find_unused_parameters=any(isinstance(layer, nn.MultiheadAttention) for layer in model.modules()))
 
     # Trainloader
     dataloader, dataset = create_dataloader(train_path, imgsz, batch_size, gs, opt,
