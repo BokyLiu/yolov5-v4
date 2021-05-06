@@ -1,7 +1,7 @@
 """Exports a YOLOv5 *.pt model to ONNX and TorchScript formats
 
 Usage:
-    $ export PYTHONPATH="$PWD" && python models/export_onnx.py --weights ./weights/yolov5s.pt --img 640 --batch 1
+    $ export PYTHONPATH="$PWD" && python models/export_plugin_onnx.py --weights ./weights/yolov5s.pt --img 640 --batch 1
 """
 
 import argparse
@@ -62,6 +62,60 @@ if __name__ == '__main__':
                 m.act = customSiLU()
         # elif isinstance(m, models.yolo.Detect):
         #     m.forward = m.forward_export  # assign forward (optional)
+    if False:
+        import cv2
+        from utils.general import non_max_suppression,scale_coords
+        from pathlib import Path
+        from numpy import random
+        from utils.plots import plot_one_box
+        from utils.datasets import letterbox
+        import numpy as np
+        path="data/images/coco_1.jpg"
+        img0 = cv2.imread(path)  # BGR
+        assert img0 is not None, 'Image Not Found ' + path
+
+        # Get names and colors
+        names = model.module.names if hasattr(model, 'module') else model.names
+        colors = [[random.randint(0, 255) for _ in range(3)] for _ in names]
+
+        # Padded resize
+        img = letterbox(img0, new_shape=640)[0]
+
+        # Convert
+        img = img[:, :, ::-1].transpose(2, 0, 1)  # BGR to RGB, to 3x416x416
+        img = np.ascontiguousarray(img)
+        img = torch.from_numpy(img).to('cpu')
+        img = img.float()  # uint8 to fp16/32
+        img /= 255.0  # 0 - 255 to 0.0 - 1.0
+        if img.ndimension() == 3:
+            img = img.unsqueeze(0)
+        pred = model(img)[0]
+        # Apply NMS
+        pred = non_max_suppression(pred, 0.25, 0.45, classes=None, agnostic=False)
+        # Process detections
+        for i, det in enumerate(pred):  # detections per image
+            p, s,im0 = path, '',img0
+
+            p = Path(p)  # to Path
+            s += '%gx%g ' % img.shape[2:]  # print string
+            gn = torch.tensor(im0.shape)[[1, 0, 1, 0]]  # normalization gain whwh
+            if len(det):
+                # Rescale boxes from img_size to im0 size
+                det[:, :4] = scale_coords(img.shape[2:], det[:, :4], im0.shape).round()
+
+                # Print results
+                for c in det[:, -1].unique():
+                    n = (det[:, -1] == c).sum()  # detections per class
+                    s += f'{n} {names[int(c)]}s, '  # add to string
+
+                # Write results
+                for *xyxy, conf, cls in reversed(det):
+                    label = f'{names[int(cls)]} {conf:.2f}'
+                    plot_one_box(xyxy, im0, label=label, color=colors[int(cls)], line_thickness=3)
+            save_path="result.jpg"
+            cv2.imwrite(save_path, im0)
+
+
     model.model[-1].export = True  # set Detect() layer export=True
     y = model(img)  # dry run
 
@@ -78,6 +132,7 @@ if __name__ == '__main__':
         onnx_model = onnx.load(f)  # load onnx model
         # onnx.checker.check_model(onnx_model)  # check onnx model
         print(onnx.helper.printable_graph(onnx_model.graph))  # print a human readable model
+
         print('ONNX export success, saved as %s' % f)
     except Exception as e:
         print('ONNX export failure: %s' % e)
