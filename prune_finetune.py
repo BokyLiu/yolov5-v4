@@ -314,8 +314,8 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
                 if rank != -1:
                     loss *= opt.world_size  # gradient averaged between devices in DDP mode
 
+            soft_target = 0
             if distill:
-                soft_target = 0
                 reg_ratio = 0  #表示有多少target的回归是不如老师的，这时学生会跟gt再学习
                 # _,output_t = t_model(imgs)
                 with torch.no_grad():
