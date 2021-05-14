@@ -323,6 +323,8 @@ def build_targets_cfg(p, targets, model):
     for i in range(len(model.yolo_layers)):
         yolo_layers_i = model.yolo_layers[i]
         if multi_gpu:
+            stride = [8.0, 16.0, 32.0][i]
+            anchors = model.module.module_list[yolo_layers_i].anchors.to(targets.device) / stride
             anchors = model.module.module_list[yolo_layers_i].anchor_vec
         else:
             anchors = model.module_list[yolo_layers_i].anchor_vec
